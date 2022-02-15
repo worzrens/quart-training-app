@@ -38,7 +38,7 @@ class SwitchType(enum.Enum):
 
 class Switch(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    color = db.Column(db.String(80), unique=True, nullable=False)
+    color = db.Column(db.String(80), nullable=False)
     type = db.Column(db.Enum(SwitchType), nullable=False)
     company = db.Column(db.String(120), nullable=False)
 
@@ -83,21 +83,38 @@ def fill_db():
 
 def is_exists(model, args):
     with Session() as session:
-        print("QWEWQE", model.query.filter_by(**args).all())
-        print("YYYYY", model.query.filter_by(**args).exists())
-        print("ZZZZZ", session.query(
-            model.query.filter_by(**args).exists()
-            ).scalar()
-            )
-
         return session.query(
             model.query.filter_by(**args).exists()
             ).scalar()
 
 @app.route('/switches/<int:id>')
-async def switches_get(id):
+async def switch_retreive(id):
     switch = Switch.query.get(id)
     return switch_schema.dump(switch)
+    
+@app.route('/switches/<int:id>', methods=["PATCH"])
+async def switch_partial_update(id):
+    request_errors = []
+    with Session() as session:
+        switch = session.query(Switch).filter(Switch.id == id)
+        if not switch.first():
+            request_errors.append('No switch found with provided id')
+
+        data = await request.get_json()
+        type = data.get('type')
+
+        if type and not SwitchType.has(type):
+            request_errors.append('Provided switch type does not exist') 
+
+        session.query(Switch).filter(Switch.id == id).update(data)        
+        session.commit()
+
+        if not request_errors:
+            return switch_schema.dump(switch.first())
+
+    return {
+        "errors": request_errors 
+    }, 400
 
 @app.route('/switches')
 async def switches_list():
@@ -107,7 +124,7 @@ async def switches_list():
     }
 
 @app.route('/switches', methods=["POST"])
-async def switches_create():
+async def switch_create():
     request_errors = []
 
     data = await request.get_json()
