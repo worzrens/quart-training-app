@@ -90,7 +90,12 @@ def is_exists(model, args):
 @app.route('/switches/<int:id>')
 async def switch_retreive(id):
     switch = Switch.query.get(id)
-    return switch_schema.dump(switch)
+    if switch:
+        return switch_schema.dump(switch)
+
+    return {
+        "error": 'No switch found with provided id'
+    }, 404
     
 @app.route('/switches/<int:id>', methods=["PATCH"])
 async def switch_partial_update(id):
@@ -115,6 +120,25 @@ async def switch_partial_update(id):
     return {
         "errors": request_errors 
     }, 400
+
+
+@app.route('/switches/<int:id>', methods=['DELETE'])
+async def switch_remove(id):
+    request_errors = []
+    with Session() as session:
+        switch = Switch.query.get(id)
+        if switch:
+            db.session.delete(switch)
+            db.session.commit()
+
+            return {
+                "success": True,
+                "id": id
+            }
+
+    return {
+        "error": 'No switch found with provided id'
+    }, 404
 
 @app.route('/switches')
 async def switches_list():
