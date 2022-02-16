@@ -1,13 +1,16 @@
 import json
+from typing import final
 import quart.flask_patch
 import enum
-from quart import Quart, request
+from quart import Quart, Response, request
 from marshmallow_sqlalchemy import SQLAlchemySchema
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column, Enum, Integer, String, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from flask_marshmallow import Marshmallow
 from marshmallow_enum import EnumField
+
+from validators import validate_empty_search_criteria, validate_search_criterias, validate_switch_enum
 
 user='psql_user'
 password='1'
@@ -17,7 +20,6 @@ database='quart-app'
 DATABASE_CONNECTION_URI = f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}'
 
 app = Quart(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_CONNECTION_URI
 engine = create_engine(DATABASE_CONNECTION_URI)
 Base = declarative_base()
 ma = Marshmallow(app)
@@ -94,28 +96,28 @@ def is_exists(model, args):
 async def switch_search():
     request_errors = []
 
-    data = await request.get_json()
-    if not data:
-        request_errors.append('No search criteria provided')
+    try:
+        data = await request.get_json()
+        
+        validate_empty_search_criteria(data, request_errors)
+        validate_search_criterias(data, Switch, request_errors)
+        validate_switch_enum(data, SwitchType, request_errors)
 
-    for [k, v] in data.items():
-        if k not in Switch.__table__.columns.keys():
-            request_errors.append(f'Unknown column: {k}')
-
-    type = data.get('type')
-    if type and not SwitchType.has(type):
-        request_errors.append('Provided switch type does not exist') 
-
-    if not request_errors:
-        filtered_switches = session.query(Switch).filter_by(**data).all()
-
+        if not request_errors:
+            filtered_switches = session.query(Switch).filter_by(**data).all()
+            print("SHOULD RETURN")
+            
+            return {
+                'result': switches_schema.dump(filtered_switches)
+                }
         return {
-            'result': switches_schema.dump(filtered_switches)
-            }
+            "errors": request_errors
+        }, 400
 
-    return {
-        "errors": request_errors 
-    }, 400
+    except Exception as e:
+        return {
+            "errors": [str(e) if e else 'Unknown error occured'] 
+        }, 500
 
 
 @app.route('/switches/<int:id>')
