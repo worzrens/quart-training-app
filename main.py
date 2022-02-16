@@ -4,8 +4,8 @@ import enum
 from quart import Quart, request
 from marshmallow_sqlalchemy import SQLAlchemySchema
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column, Enum, Integer, String, create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 from flask_marshmallow import Marshmallow
 from marshmallow_enum import EnumField
 
@@ -19,9 +19,11 @@ DATABASE_CONNECTION_URI = f'postgresql+psycopg2://{user}:{password}@{host}:{port
 app = Quart(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_CONNECTION_URI
 engine = create_engine(DATABASE_CONNECTION_URI)
-db = SQLAlchemy(app)
+Base = declarative_base()
 ma = Marshmallow(app)
-Session = sessionmaker(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
+
 
 class SwitchType(enum.Enum):
     linear = 'Linear'
@@ -36,11 +38,13 @@ class SwitchType(enum.Enum):
     def get(cls, name):
         return cls[name] if cls.has(name) else None
 
-class Switch(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    color = db.Column(db.String(80), nullable=False)
-    type = db.Column(db.Enum(SwitchType), nullable=False)
-    company = db.Column(db.String(120), nullable=False)
+class Switch(Base):
+    __tablename__ = 'switches'
+
+    id = Column(Integer, primary_key=True)
+    color = Column(String(80), nullable=False)
+    type = Column(Enum(SwitchType), nullable=False)
+    company = Column(String(120), nullable=False)
 
     def __repr__(self):
         return f'<{self.company}> {self.color}'
@@ -60,53 +64,54 @@ switch_schema = SwitchSchema()
 switches_schema = SwitchSchema(many=True)
 
 def fill_db():
-    db.drop_all()
-    db.create_all()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
 
-    with Session() as session:
-        mock_switches = [
-            Switch(color='Red', type=SwitchType.linear, company='MX Cherry'),
-            Switch(color='Silver', type=SwitchType.linear, company='MX Cherry'),
-            Switch(color='Black', type=SwitchType.linear, company='MX Cherry'),
+    mock_switches = [
+        Switch(color='Red', type=SwitchType.linear, company='MX Cherry'),
+        Switch(color='Silver', type=SwitchType.linear, company='MX Cherry'),
+        Switch(color='Black', type=SwitchType.linear, company='MX Cherry'),
 
-            Switch(color='Brown', type=SwitchType.tactile, company='MX Cherry'),
-            Switch(color='Clear', type=SwitchType.tactile, company='MX Cherry'),
-            Switch(color='Gray', type=SwitchType.tactile, company='MX Cherry'),
+        Switch(color='Brown', type=SwitchType.tactile, company='MX Cherry'),
+        Switch(color='Clear', type=SwitchType.tactile, company='MX Cherry'),
+        Switch(color='Gray', type=SwitchType.tactile, company='MX Cherry'),
 
-            Switch(color='Blue', type=SwitchType.clicky, company='MX Cherry'),
-            Switch(color='Green', type=SwitchType.clicky, company='MX Cherry'),
-            Switch(color='White', type=SwitchType.clicky, company='MX Cherry'),
-        ]
-        session.bulk_save_objects(mock_switches)
-        session.commit()
-        return True
+        Switch(color='Blue', type=SwitchType.clicky, company='MX Cherry'),
+        Switch(color='Green', type=SwitchType.clicky, company='MX Cherry'),
+        Switch(color='White', type=SwitchType.clicky, company='MX Cherry'),
+    ]
+    session.bulk_save_objects(mock_switches)
+    session.commit()
+    return True
 
 def is_exists(model, args):
     with Session() as session:
         return session.query(
-            model.query.filter_by(**args).exists()
+            session.query(model).filter_by(**args).exists()
             ).scalar()
 
 @app.route('/switches/search', methods=["POST"])
 async def switch_search():
     request_errors = []
 
-    with Session() as session:
-        data = await request.get_json()
-        if not data:
-            request_errors.append('No search criteria provided')
+    data = await request.get_json()
+    if not data:
+        request_errors.append('No search criteria provided')
 
-        type = data.get('type')
-        if type and not SwitchType.has(type):
-            request_errors.append('Provided switch type does not exist') 
+    for [k, v] in data.items():
+        if k not in Switch.__table__.columns.keys():
+            request_errors.append(f'Unknown column: {k}')
 
-        print("DD ", data)
+    type = data.get('type')
+    if type and not SwitchType.has(type):
+        request_errors.append('Provided switch type does not exist') 
+
+    if not request_errors:
         filtered_switches = session.query(Switch).filter_by(**data).all()
 
-        if not request_errors:
-            return {
-                'result': switches_schema.dump(filtered_switches)
-                }
+        return {
+            'result': switches_schema.dump(filtered_switches)
+            }
 
     return {
         "errors": request_errors 
@@ -115,7 +120,7 @@ async def switch_search():
 
 @app.route('/switches/<int:id>')
 async def switch_retreive(id):
-    switch = Switch.query.get(id)
+    switch = session.query(Switch).get(id)
     if switch:
         return switch_schema.dump(switch)
 
@@ -126,22 +131,21 @@ async def switch_retreive(id):
 @app.route('/switches/<int:id>', methods=["PATCH"])
 async def switch_partial_update(id):
     request_errors = []
-    with Session() as session:
-        switch = session.query(Switch).filter(Switch.id == id)
-        if not switch.first():
-            request_errors.append('No switch found with provided id')
+    switch = session.query(Switch).filter(Switch.id == id)
+    if not switch.first():
+        request_errors.append('No switch found with provided id')
 
-        data = await request.get_json()
-        type = data.get('type')
+    data = await request.get_json()
+    type = data.get('type')
 
-        if type and not SwitchType.has(type):
-            request_errors.append('Provided switch type does not exist') 
+    if type and not SwitchType.has(type):
+        request_errors.append('Provided switch type does not exist') 
 
-        session.query(Switch).filter(Switch.id == id).update(data)        
-        session.commit()
+    session.query(Switch).filter(Switch.id == id).update(data)        
+    session.commit()
 
-        if not request_errors:
-            return switch_schema.dump(switch.first())
+    if not request_errors:
+        return switch_schema.dump(switch.first())
 
     return {
         "errors": request_errors 
@@ -151,16 +155,15 @@ async def switch_partial_update(id):
 @app.route('/switches/<int:id>', methods=['DELETE'])
 async def switch_remove(id):
     request_errors = []
-    with Session() as session:
-        switch = Switch.query.get(id)
-        if switch:
-            db.session.delete(switch)
-            db.session.commit()
+    switch = session.query(Switch).get(id)
+    if switch:
+        session.delete(switch)
+        session.commit()
 
-            return {
-                "success": True,
-                "id": id
-            }
+        return {
+            "success": True,
+            "id": id
+        }
 
     return {
         "error": 'No switch found with provided id'
@@ -168,7 +171,7 @@ async def switch_remove(id):
 
 @app.route('/switches')
 async def switches_list():
-    switches = Switch.query.all()
+    switches = session.query(Switch).all()
     return {
         "switches": switches_schema.dump(switches), 
     }
@@ -189,12 +192,11 @@ async def switch_create():
     if is_switch_exists:
         request_errors.append('Object with provided parameters already exists')
 
-    with Session() as session:
-        if not request_errors: 
-            new_switch = Switch(color=color, type=SwitchType.get(type), company=company)
-            session.add(new_switch)
-            session.commit()
-            return switch_schema.dump(new_switch)
+    if not request_errors: 
+        new_switch = Switch(color=color, type=SwitchType.get(type), company=company)
+        session.add(new_switch)
+        session.commit()
+        return switch_schema.dump(new_switch), 201
 
     return {
         "errors": request_errors 
@@ -205,10 +207,9 @@ async def populate():
     print('Started population')
     is_done = fill_db()
     print(f'Finished population {is_done}')
-    print(Switch.query.all())
     return 'Completed', 201
 
 
 if __name__ == "__main__":
-    db.create_all()
+    Base.metadata.create_all(engine)
     app.run(debug=True)
