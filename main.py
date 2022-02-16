@@ -87,6 +87,32 @@ def is_exists(model, args):
             model.query.filter_by(**args).exists()
             ).scalar()
 
+@app.route('/switches/search', methods=["POST"])
+async def switch_search():
+    request_errors = []
+
+    with Session() as session:
+        data = await request.get_json()
+        if not data:
+            request_errors.append('No search criteria provided')
+
+        type = data.get('type')
+        if type and not SwitchType.has(type):
+            request_errors.append('Provided switch type does not exist') 
+
+        print("DD ", data)
+        filtered_switches = session.query(Switch).filter_by(**data).all()
+
+        if not request_errors:
+            return {
+                'result': switches_schema.dump(filtered_switches)
+                }
+
+    return {
+        "errors": request_errors 
+    }, 400
+
+
 @app.route('/switches/<int:id>')
 async def switch_retreive(id):
     switch = Switch.query.get(id)
