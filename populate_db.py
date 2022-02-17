@@ -17,6 +17,9 @@ def populate_db():
         models.Switch(color='Blue', type=model_types.SwitchType.clicky, company='MX Cherry'),
         models.Switch(color='Green', type=model_types.SwitchType.clicky, company='MX Cherry'),
         models.Switch(color='White', type=model_types.SwitchType.clicky, company='MX Cherry'),
+
+        models.Switch(color='Purple', type=model_types.SwitchType.tactile, company='Zealios'),
+        models.Switch(color='Orange', type=model_types.SwitchType.linear, company='Zealios'),
     ]
     db_utils.session.bulk_save_objects(mock_switches)
     db_utils.session.commit()

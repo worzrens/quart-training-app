@@ -1,29 +1,22 @@
 from quart import Quart, request
 import db_utils
+from decorators import validate
 import populate_db
 import serializers
 import model_types
 import models
 
-from validators import validate_empty_search_criteria, validate_search_criterias, validate_switch_already_created, validate_switch_enum, validate_switch_exists
+from validators import IS_EMPTY_SEARCH_CRITERIA, IS_SEARCH_CRITERIA_CORRECT, IS_SWITCH_ALREADY_CREATED, IS_SWITCH_TYPE_CORRECT, IS_SWITCH_EXISTS
 
 
 app = Quart(__name__)
 
 
-def is_exists(model, args):
-    return db_utils.session.query(
-        db_utils.session.query(model).filter_by(**args).exists()
-        ).scalar()
-
 @app.route('/switches/search', methods=["POST"])
+@validate(IS_EMPTY_SEARCH_CRITERIA, IS_SEARCH_CRITERIA_CORRECT, IS_SWITCH_TYPE_CORRECT)
 async def switch_search():
     try:
         data = await request.get_json()
-        
-        validate_empty_search_criteria(data)
-        validate_search_criterias(data, models.Switch)
-        validate_switch_enum(data, model_types.SwitchType)
 
         filtered_switches = db_utils.session.query(models.Switch).filter_by(**data).all()            
         return {
@@ -35,9 +28,9 @@ async def switch_search():
 
 
 @app.route('/switches/<int:id>')
+@validate(IS_SWITCH_EXISTS)
 async def switch_retreive(id):
     try:
-        validate_switch_exists(id, is_exists)
 
         switch = db_utils.session.query(models.Switch).get(id)
         return serializers.switch_schema.dump(switch)
@@ -46,12 +39,10 @@ async def switch_retreive(id):
         return e.info
 
 @app.route('/switches/<int:id>', methods=["PATCH"])
+@validate(IS_SWITCH_EXISTS, IS_SWITCH_TYPE_CORRECT)
 async def switch_partial_update(id):
     try:
         data = await request.get_json()
-
-        validate_switch_exists(id, is_exists)
-        validate_switch_enum(data)
 
         switch = db_utils.session.query(models.Switch).filter(models.Switch.id == id)
         switch.update(data)        
@@ -63,10 +54,9 @@ async def switch_partial_update(id):
         return e.info
 
 @app.route('/switches/<int:id>', methods=['DELETE'])
+@validate(IS_SWITCH_EXISTS)
 async def switch_remove(id):
     try:
-        validate_switch_exists(id, is_exists)
-
         switch = db_utils.session.query(models.Switch).get(id)
         db_utils.session.delete(switch)
         db_utils.session.commit()
@@ -87,19 +77,18 @@ async def switches_list():
     }
 
 @app.route('/switches', methods=["POST"])
+@validate(IS_SWITCH_TYPE_CORRECT, IS_SWITCH_ALREADY_CREATED)
 async def switch_create():
     try:
         data = await request.get_json()
         color = data.get('color')
         type = data.get('type')
         company = data.get('company')
-        
-        validate_switch_enum(data)
-        validate_switch_already_created(is_exists(models.Switch, {"color": color, "type": model_types.SwitchType.get(type), "company": company}))
 
         new_switch = models.Switch(color=color, type=model_types.SwitchType.get(type), company=company)
         db_utils.session.add(new_switch)
         db_utils.session.commit()
+
         return serializers.switch_schema.dump(new_switch), 201
     
     except Exception as e:
@@ -107,7 +96,10 @@ async def switch_create():
 
 @app.route('/populate', methods=["POST"])
 async def populate():
-    app.add_background_task(populate_db.populate_db())
+    print("Adding population job")
+    app.add_background_task(populate_db.populate_db)
+    print("Population job added")
+
     return 'Population job has started', 201
 
 

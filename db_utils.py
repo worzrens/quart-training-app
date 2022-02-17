@@ -1,5 +1,3 @@
-import quart.flask_patch
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -23,3 +21,8 @@ def create_db_schema():
 def recreate_db_schema():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+
+def is_exists(model, args):
+    return session.query(
+        session.query(model).filter_by(**args).exists()
+        ).scalar()

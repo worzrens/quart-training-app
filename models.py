@@ -1,5 +1,3 @@
-import quart.flask_patch
-
 from sqlalchemy import Column, Enum, Integer, String
 import db_utils
 import model_types
