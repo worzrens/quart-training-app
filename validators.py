@@ -1,26 +1,50 @@
 from flask import request
 
+class ValidationError(Exception):
+    def __init__(self, msg, details = None, code = 400):
+        self.msg = str(msg)
+        self.details = details
+        self.code = code
 
-def validate_empty_search_criteria(data, request_errors):
-    if not data:
-        request_errors.append('No search criteria provided')
+    def __str__(self):
+        return self.msg
     
-    return request_errors
+    @property
+    def info(self):
+        error_data = {
+             "error": self.msg,
+        }
+        if self.details:
+            error_data["details"] = self.details
 
-def validate_search_criterias(data, Switch, request_errors):
+        return error_data, self.code
+
+def validate_empty_search_criteria(data):
+    if not data:
+        raise ValidationError('No search criteria provided')
+
+def validate_search_criterias(data, Switch):
     unknown_columns = []
     
     for [k, v] in data.items():
         if k not in Switch.__table__.columns.keys():
             unknown_columns.append(k)
-    if unknown_columns:
-        request_errors.append(f"Unknown columns: {', '.join(unknown_columns)}")
-    
-    return request_errors
+    if unknown_columns:    
+        raise ValidationError('Unknown search criteria columns', details=unknown_columns)
 
-def validate_switch_enum(data, SwitchType, request_errors):
+def validate_switch_enum(data, SwitchType):
     type = data.get('type')
     if type and not SwitchType.has(type):
-        request_errors.append('Provided switch type does not exist') 
+        raise ValidationError('Provided switch type does not exist')
 
-    return request_errors
+
+def validate_switch_exists(id, is_exists, Switch):
+    if not is_exists(Switch, {'id': id}):
+        raise ValidationError('Switch with provided id does not exist', code=404)
+        
+
+def validate_switch_already_created(is_already_exists):
+    if is_already_exists:
+        raise ValidationError('Object with provided parameters already exists', code=400)
+
+

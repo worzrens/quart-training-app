@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from flask_marshmallow import Marshmallow
 from marshmallow_enum import EnumField
 
-from validators import validate_empty_search_criteria, validate_search_criterias, validate_switch_enum
+from validators import validate_empty_search_criteria, validate_search_criterias, validate_switch_already_created, validate_switch_enum, validate_switch_exists
 
 user='psql_user'
 password='1'
@@ -94,71 +94,57 @@ def is_exists(model, args):
 
 @app.route('/switches/search', methods=["POST"])
 async def switch_search():
-    request_errors = []
-
     try:
         data = await request.get_json()
         
-        validate_empty_search_criteria(data, request_errors)
-        validate_search_criterias(data, Switch, request_errors)
-        validate_switch_enum(data, SwitchType, request_errors)
+        validate_empty_search_criteria(data)
+        validate_search_criterias(data, Switch)
+        validate_switch_enum(data, SwitchType)
 
-        if not request_errors:
-            filtered_switches = session.query(Switch).filter_by(**data).all()
-            print("SHOULD RETURN")
-            
-            return {
-                'result': switches_schema.dump(filtered_switches)
-                }
+        filtered_switches = session.query(Switch).filter_by(**data).all()            
         return {
-            "errors": request_errors
-        }, 400
+            'result': switches_schema.dump(filtered_switches)
+            }
 
     except Exception as e:
-        return {
-            "errors": [str(e) if e else 'Unknown error occured'] 
-        }, 500
+        return e.info
 
 
 @app.route('/switches/<int:id>')
 async def switch_retreive(id):
-    switch = session.query(Switch).get(id)
-    if switch:
+    try:
+        validate_switch_exists(id, is_exists, Switch)
+
+        switch = session.query(Switch).get(id)
         return switch_schema.dump(switch)
 
-    return {
-        "error": 'No switch found with provided id'
-    }, 404
-    
+    except Exception as e:
+        return e.info
+
 @app.route('/switches/<int:id>', methods=["PATCH"])
 async def switch_partial_update(id):
-    request_errors = []
-    switch = session.query(Switch).filter(Switch.id == id)
-    if not switch.first():
-        request_errors.append('No switch found with provided id')
+    try:
+        data = await request.get_json()
+        type = data.get('type')
 
-    data = await request.get_json()
-    type = data.get('type')
+        validate_switch_exists(id, is_exists, Switch)
+        validate_switch_enum(data, SwitchType)
 
-    if type and not SwitchType.has(type):
-        request_errors.append('Provided switch type does not exist') 
+        switch = session.query(Switch).filter(Switch.id == id)
+        switch.update(data)        
+        session.commit()
 
-    session.query(Switch).filter(Switch.id == id).update(data)        
-    session.commit()
-
-    if not request_errors:
         return switch_schema.dump(switch.first())
 
-    return {
-        "errors": request_errors 
-    }, 400
-
+    except Exception as e:
+        return e.info
 
 @app.route('/switches/<int:id>', methods=['DELETE'])
 async def switch_remove(id):
-    request_errors = []
-    switch = session.query(Switch).get(id)
-    if switch:
+    try:
+        validate_switch_exists(id, is_exists, Switch)
+
+        switch = session.query(Switch).get(id)
         session.delete(switch)
         session.commit()
 
@@ -167,9 +153,8 @@ async def switch_remove(id):
             "id": id
         }
 
-    return {
-        "error": 'No switch found with provided id'
-    }, 404
+    except Exception as e:
+        return e.info
 
 @app.route('/switches')
 async def switches_list():
@@ -180,29 +165,22 @@ async def switches_list():
 
 @app.route('/switches', methods=["POST"])
 async def switch_create():
-    request_errors = []
+    try:
+        data = await request.get_json()
+        color = data.get('color')
+        type = data.get('type')
+        company = data.get('company')
+        
+        validate_switch_enum(data, SwitchType)
+        validate_switch_already_created(is_exists(Switch, {"color": color, "type": SwitchType.get(type), "company": company}))
 
-    data = await request.get_json()
-    color = data.get('color')
-    type = data.get('type')
-    company = data.get('company')
-
-    if not SwitchType.has(type):
-       request_errors.append('Provided switch type does not exist') 
-
-    is_switch_exists = is_exists(Switch, {"color": color, "type": SwitchType.get(type), "company": company})
-    if is_switch_exists:
-        request_errors.append('Object with provided parameters already exists')
-
-    if not request_errors: 
         new_switch = Switch(color=color, type=SwitchType.get(type), company=company)
         session.add(new_switch)
         session.commit()
         return switch_schema.dump(new_switch), 201
-
-    return {
-        "errors": request_errors 
-    }, 400
+    
+    except Exception as e:
+        return e.info
 
 @app.route('/populate', methods=["POST"])
 async def populate():
