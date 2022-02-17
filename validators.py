@@ -1,4 +1,5 @@
-from flask import request
+import models
+import model_types
 
 class ValidationError(Exception):
     def __init__(self, msg, details = None, code = 400):
@@ -23,23 +24,23 @@ def validate_empty_search_criteria(data):
     if not data:
         raise ValidationError('No search criteria provided')
 
-def validate_search_criterias(data, Switch):
+def validate_search_criterias(data):
     unknown_columns = []
     
     for [k, v] in data.items():
-        if k not in Switch.__table__.columns.keys():
+        if k not in models.Switch.__table__.columns.keys():
             unknown_columns.append(k)
     if unknown_columns:    
         raise ValidationError('Unknown search criteria columns', details=unknown_columns)
 
-def validate_switch_enum(data, SwitchType):
+def validate_switch_enum(data):
     type = data.get('type')
-    if type and not SwitchType.has(type):
+    if type and not model_types.SwitchType.has(type):
         raise ValidationError('Provided switch type does not exist')
 
 
-def validate_switch_exists(id, is_exists, Switch):
-    if not is_exists(Switch, {'id': id}):
+def validate_switch_exists(id, is_exists):
+    if not is_exists(models.Switch, {'id': id}):
         raise ValidationError('Switch with provided id does not exist', code=404)
         
 
